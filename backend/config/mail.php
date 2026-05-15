@@ -4,7 +4,12 @@ return [
     'default' => env('MAIL_MAILER', 'log'),
 
     'mailers' => [
-        // Mailtrap (SMTP-sandbox или production-API через SMTP)
+        // Resend HTTPS API (resend/resend-laravel). Reads RESEND_API_KEY env.
+        'resend' => [
+            'transport' => 'resend',
+        ],
+
+        // SMTP transport (Mailtrap, generic SMTP). Kept for local/dev use.
         'smtp' => [
             'transport' => 'smtp',
             'scheme' => env('MAIL_SCHEME'),
@@ -26,15 +31,16 @@ return [
             'transport' => 'array',
         ],
 
-        // Fallback: если SMTP недоступен, письма уйдут в лог.
+        // Fallback chain: Resend API → log. If Resend rejects/times out,
+        // the email is written to the application log instead of being lost.
         'failover' => [
             'transport' => 'failover',
-            'mailers' => ['smtp', 'log'],
+            'mailers' => ['resend', 'log'],
         ],
     ],
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'no-reply@sitescout.test'),
+        'address' => env('MAIL_FROM_ADDRESS', 'onboarding@resend.dev'),
         'name' => env('MAIL_FROM_NAME', 'SiteScout'),
     ],
 ];

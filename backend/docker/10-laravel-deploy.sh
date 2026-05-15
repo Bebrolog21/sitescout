@@ -41,10 +41,11 @@ $AS_WWW php artisan view:clear   || true
 $AS_WWW php artisan config:cache
 $AS_WWW php artisan route:cache
 $AS_WWW php artisan view:cache
+$AS_WWW php artisan event:cache
 
 $AS_WWW php artisan migrate --force --no-interaction
 
-$AS_WWW php artisan storage:link || true
+$AS_WWW php artisan storage:link --force
 
 # ── Seeding (idempotent) ────────────────────────────────────────
 # Seed only when the database is empty. Counting users is enough because

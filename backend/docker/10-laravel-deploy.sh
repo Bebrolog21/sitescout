@@ -47,23 +47,32 @@ $AS_WWW php artisan migrate --force --no-interaction
 
 $AS_WWW php artisan storage:link --force
 
-# ── Seeding (idempotent) ────────────────────────────────────────
-# Seed only when the database is empty. Counting users is enough because
-# DatabaseSeeder always inserts at least the admin user.
+# ── Seeding (idempotent, two-tier) ──────────────────────────────
+# Tier 1: if the users table is empty → run the full DatabaseSeeder
+#         (creates admin user + invokes DemoDataSeeder).
+# Tier 2: if users exist but residential_complexes is empty → demo data
+#         was never seeded (e.g. partial manual run) → seed only the
+#         demo class so we don't try to re-create the admin user.
+# Otherwise: nothing to do.
 USER_COUNT=$($AS_WWW php artisan tinker --execute='echo \App\Models\User::count();' 2>/dev/null | tr -d '[:space:]')
+COMPLEX_COUNT=$($AS_WWW php artisan tinker --execute='echo \App\Models\ResidentialComplex::count();' 2>/dev/null | tr -d '[:space:]')
 
-case "$USER_COUNT" in
-    ''|*[!0-9]*)
-        echo ">> Could not determine user count (got: '$USER_COUNT') — skipping seed to be safe."
-        ;;
-    0)
-        echo ">> Database empty — seeding demo data..."
-        $AS_WWW php artisan db:seed --force --no-interaction
-        ;;
-    *)
-        echo ">> Database already populated ($USER_COUNT users) — skipping seed."
-        ;;
-esac
+is_zero_int() {
+    case "$1" in
+        0) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+if is_zero_int "$USER_COUNT"; then
+    echo ">> Empty DB — running full seed (admin + demo data)..."
+    $AS_WWW php artisan db:seed --force --no-interaction
+elif is_zero_int "$COMPLEX_COUNT"; then
+    echo ">> Admin exists but demo data missing — seeding DemoDataSeeder only..."
+    $AS_WWW php artisan db:seed --force --no-interaction --class=DemoDataSeeder
+else
+    echo ">> Database already populated (${USER_COUNT} users, ${COMPLEX_COUNT} complexes) — skipping seed."
+fi
 
 # Final ownership sweep — covers any files written as root.
 chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache 2>/dev/null || true

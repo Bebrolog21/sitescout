@@ -42,4 +42,6 @@ RUN chmod +x /etc/entrypoint.d/10-laravel-deploy.sh
 # Nginx document root.
 ENV NGINX_WEBROOT=/var/www/html/public
 
-USER www-data
+# Keep the final USER as root so serversideup's s6-overlay can run entrypoint
+# hooks (e.g. chown of Railway-mounted volumes) before dropping privileges
+# to www-data for nginx and php-fpm.

@@ -1,231 +1,283 @@
-# Деплой SiteScout на Railway
+# Деплой SiteScout на Railway (GitHub flow)
 
-Пошаговая инструкция для развёртывания на [Railway](https://railway.app) через CLI.
+Пошаговая инструкция для развёртывания на [Railway](https://railway.app).
+Деплой автоматический: `git push origin develop` → Railway собирает и поднимает оба сервиса.
 
-Стек: backend (Laravel 13 / PHP 8.3 / PostgreSQL) + frontend (Vite/React SPA), деплоятся как **два отдельных сервиса** в одном Railway-проекте. Источник кода — `railway up` из локальной папки (GitHub не используется).
+**Репозиторий:** [Bebrolog21/sitescout](https://github.com/Bebrolog21/sitescout)
+**Ветка деплоя:** `develop`
+
+Стек:
+- `backend/` — Laravel 13 / PHP 8.3 / PostgreSQL / Sanctum (Bearer tokens)
+- `frontend/` — Vite/React SPA
+
+Два сервиса в одном Railway-проекте, каждый указывает на свой подкаталог монорепо.
 
 ---
 
 ## 0. Что нужно подготовить
 
-1. **Аккаунт Railway** с привязанной картой (Hobby план $5/мес — бесплатный кредит трачивается за ~3 недели на одном проекте).
-2. **Railway CLI**:
-   ```powershell
-   iwr -useb https://railway.app/install.ps1 | iex
-   # или: npm i -g @railway/cli
-   railway --version
-   railway login
-   ```
-3. **Аккаунт [Resend](https://resend.com)** + API key (для писем сброса пароля). Без верификации домена можно слать только с `onboarding@resend.dev`.
+1. **Аккаунт Railway** ([railway.app](https://railway.app)) с привязанной картой. Стартовый кредит $5, дальше Hobby план $5/мес + потребление.
+2. **GitHub-приложение Railway** должно быть установлено на твой аккаунт `Bebrolog21` и иметь доступ к репозиторию `sitescout`. При первом подключении Railway сам предложит установить — соглашаешься, выбираешь "Only select repositories" и даёшь доступ к `sitescout`.
+3. **Аккаунт [Resend](https://resend.com)** + API key (для писем сброса пароля).
 4. **DaData токен** (опционально, для подсказок адресов) — у тебя уже есть в `frontend/.env.local`.
 5. **`APP_KEY`** для Laravel — сгенерируй локально:
    ```powershell
    cd backend
    php artisan key:generate --show
-   # скопируй вывод вида: base64:xxxxxxx... — сохрани в менеджер паролей
+   # скопируй вывод вида: base64:xxxxxxx...
    ```
+   Сохрани в менеджер паролей — потеря ключа = потеря зашифрованных данных.
 
 ---
 
-## 1. Создание проекта и PostgreSQL
+## 1. Создание проекта Railway и подключение GitHub
 
-```powershell
-# из корня репо
-railway login
-railway init
-# → выбери "Empty Project", назови "sitescout"
-```
+1. Открой [railway.app/new](https://railway.app/new) → **Deploy from GitHub repo**.
+2. Если Railway ещё не подключен к GitHub — нажми **Configure GitHub App**, выбери `Bebrolog21/sitescout`, разреши доступ.
+3. Назад в Railway → выбери репо `Bebrolog21/sitescout` → нажми **Deploy Now**.
+4. Railway создаст проект и **первый сервис** автоматически (без правильного root path — поправим в шаге 2).
+5. Переименуй проект: **Settings → Project Name → `sitescout`**.
 
-В [Railway Dashboard](https://railway.app/dashboard) открой проект:
+---
+
+## 2. PostgreSQL plugin
+
+В Railway dashboard внутри проекта:
 - **+ New → Database → Add PostgreSQL** — появится сервис `Postgres`.
 
+Он автоматически экспортирует переменные `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `DATABASE_URL` для других сервисов проекта через Service References (`${{Postgres.PGHOST}}`).
+
 ---
 
-## 2. Деплой backend
+## 3. Backend service
 
-```powershell
-cd backend
-railway link
-# выбери проект sitescout → создать новый сервис → имя: "backend"
+### 3.1 Настройка сервиса
+
+Если Railway автоматически создал сервис в шаге 1 — переименуй его в `backend`. Иначе: **+ New → GitHub Repo → Bebrolog21/sitescout**.
+
+Открой сервис `backend` → **Settings**:
+
+| Поле | Значение |
+|---|---|
+| Service Name | `backend` |
+| Source Repo | `Bebrolog21/sitescout` |
+| Branch | `develop` |
+| **Root Directory** | `backend` |
+| Builder | Dockerfile (определяется автоматически по наличию `backend/Dockerfile`) |
+| Dockerfile Path | `Dockerfile` (относительно root directory) |
+| Watch Paths | `backend/**` (пересобирать только если меняется backend; опционально) |
+
+### 3.2 Переменные окружения backend
+
+**Settings → Variables → Raw Editor** — вставь блоком (заменив значения в `<...>`):
+
+```env
+APP_NAME=SiteScout
+APP_ENV=production
+APP_KEY=<base64:... из шага 0>
+APP_DEBUG=false
+APP_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
+LOG_CHANNEL=stderr
+LOG_LEVEL=info
+
+DB_CONNECTION=pgsql
+DB_HOST=${{Postgres.PGHOST}}
+DB_PORT=${{Postgres.PGPORT}}
+DB_DATABASE=${{Postgres.PGDATABASE}}
+DB_USERNAME=${{Postgres.PGUSER}}
+DB_PASSWORD=${{Postgres.PGPASSWORD}}
+
+SESSION_DRIVER=database
+CACHE_STORE=database
+QUEUE_CONNECTION=sync
+
+FRONTEND_URL=https://<frontend-public-domain>
+TRUSTED_PROXIES=*
+
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.resend.com
+MAIL_PORT=465
+MAIL_USERNAME=resend
+MAIL_PASSWORD=<твой Resend API key>
+MAIL_SCHEME=ssl
+MAIL_FROM_ADDRESS=onboarding@resend.dev
+MAIL_FROM_NAME=SiteScout
 ```
 
-### 2.1 Переменные окружения backend
+> `${{Postgres.PGHOST}}` и т.п. — это Railway service references. `${{RAILWAY_PUBLIC_DOMAIN}}` — встроенная переменная с публичным доменом сервиса.
+> `FRONTEND_URL` заполнишь после шага 4.
 
-Через dashboard (Service `backend` → Variables) или CLI (`railway variables --set KEY=VALUE`):
+### 3.3 Persistent storage (volume)
 
-| Переменная | Значение |
-|---|---|
-| `APP_NAME` | `SiteScout` |
-| `APP_ENV` | `production` |
-| `APP_KEY` | `base64:...` (из шага 0) |
-| `APP_DEBUG` | `false` |
-| `APP_URL` | `https://<backend-public-domain>` (заполнишь после шага 2.3) |
-| `LOG_CHANNEL` | `stderr` |
-| `LOG_LEVEL` | `info` |
-| `DB_CONNECTION` | `pgsql` |
-| `DB_HOST` | `${{Postgres.PGHOST}}` |
-| `DB_PORT` | `${{Postgres.PGPORT}}` |
-| `DB_DATABASE` | `${{Postgres.PGDATABASE}}` |
-| `DB_USERNAME` | `${{Postgres.PGUSER}}` |
-| `DB_PASSWORD` | `${{Postgres.PGPASSWORD}}` |
-| `SESSION_DRIVER` | `database` |
-| `CACHE_STORE` | `database` |
-| `QUEUE_CONNECTION` | `sync` |
-| `FRONTEND_URL` | `https://<frontend-public-domain>` (после шага 3.3) |
-| `TRUSTED_PROXIES` | `*` |
-| `MAIL_MAILER` | `smtp` |
-| `MAIL_HOST` | `smtp.resend.com` |
-| `MAIL_PORT` | `465` |
-| `MAIL_USERNAME` | `resend` |
-| `MAIL_PASSWORD` | твой Resend API key |
-| `MAIL_SCHEME` | `ssl` |
-| `MAIL_FROM_ADDRESS` | `onboarding@resend.dev` (или свой домен после верификации) |
-| `MAIL_FROM_NAME` | `SiteScout` |
-
-> `${{Postgres.PGHOST}}` и т.д. — это Railway service references, они подставляются автоматически. Имя `Postgres` должно совпадать с именем сервиса БД (по умолчанию так).
-
-### 2.2 Persistent storage (volume)
-
-В Railway dashboard: Service `backend` → **Settings → Volumes → + New Volume**:
+Service `backend` → **Settings → Volumes → + New Volume**:
 - Mount path: `/var/www/html/storage`
 - Name: `backend-storage`
 
-Без volume аттачменты будут пропадать при каждом редеплое.
+Без volume аттачменты пропадают при каждом редеплое.
 
-### 2.3 Сборка и деплой
+### 3.4 Сгенерировать публичный домен
 
-```powershell
-# по-прежнему в backend/
-railway up
-```
+Service `backend` → **Settings → Networking → Generate Domain**. Получишь `backend-production-xxxx.up.railway.app`.
 
-Это запакует папку (с учётом `.dockerignore`), отправит на Railway, соберёт по `Dockerfile`. Сборка ~5–8 минут в первый раз.
+### 3.5 Запустить деплой
 
-После успешной сборки: dashboard → backend → **Settings → Networking → Generate Domain**. Получишь что-то вроде `backend-production-abcd.up.railway.app`. Скопируй — это твой backend URL.
+Railway автоматически начнёт сборку, как только увидит новые настройки. Если нет — **Deployments → Deploy**.
 
-Вернись в Variables и обнови `APP_URL=https://backend-production-abcd.up.railway.app`. Сервис автоматически передеплоится.
+Первая сборка ~5–8 минут (Composer install + Docker build).
 
-### 2.4 Проверка
+### 3.6 Проверка
 
 ```powershell
 curl https://<backend-domain>/up
-# → должен вернуть 200 OK (Laravel built-in health endpoint)
+# → 200 OK (Laravel built-in health endpoint)
 
 curl https://<backend-domain>/api/v1/
 # → JSON со списком эндпоинтов
 ```
 
-Посмотри логи: `railway logs --service backend` — там должны быть строки об успешных миграциях.
+Логи: dashboard → backend → **Deployments → View Logs**. Там должны быть строки об успешных миграциях (`Migrating: ...`, `Migrated: ...`).
 
-### 2.5 Сидинг (один раз, опционально)
+### 3.7 Сидинг демо-данных (один раз, опционально)
 
-Демо-данные (3 ЖК, 10 площадок, демо-пользователь):
-
-```powershell
-railway run --service backend php artisan db:seed
-```
+В dashboard → backend → **⋯ → Open Shell** (или через `railway run --service backend php artisan db:seed` если стоит CLI).
 
 Демо-логин: `admin@sitescout.test / password`.
 
 ---
 
-## 3. Деплой frontend
+## 4. Frontend service
 
-```powershell
-cd ..\frontend
-railway link
-# выбери проект sitescout → создать новый сервис → имя: "frontend"
-```
+### 4.1 Создание сервиса
 
-### 3.1 Build-time переменные
+Проект → **+ New → GitHub Repo → Bebrolog21/sitescout**.
 
-Vite зашивает `VITE_*` переменные в бандл на этапе сборки. В Railway они должны быть **обычными Variables** (Railway автоматически прокидывает их как build args в Dockerfile через `ARG VITE_API_BASE_URL` / `ARG VITE_DADATA_TOKEN`):
+Service → **Settings**:
 
-| Переменная | Значение |
+| Поле | Значение |
 |---|---|
-| `VITE_API_BASE_URL` | `https://<backend-domain>/api/v1` (домен из шага 2.3) |
-| `VITE_DADATA_TOKEN` | твой DaData токен (из `frontend/.env.local`) |
+| Service Name | `frontend` |
+| Source Repo | `Bebrolog21/sitescout` |
+| Branch | `develop` |
+| **Root Directory** | `frontend` |
+| Builder | Dockerfile |
+| Dockerfile Path | `Dockerfile` |
+| Watch Paths | `frontend/**` (опционально) |
 
-### 3.2 Сборка и деплой
+### 4.2 Build-time переменные
 
-```powershell
-railway up
+Vite зашивает `VITE_*` в бандл на этапе сборки. Railway автоматически прокидывает все переменные сервиса как build args в Dockerfile (там объявлены `ARG VITE_API_BASE_URL` / `ARG VITE_DADATA_TOKEN`).
+
+**Settings → Variables:**
+
+```env
+VITE_API_BASE_URL=https://<backend-domain>/api/v1
+VITE_DADATA_TOKEN=<твой DaData токен>
 ```
 
-### 3.3 Получить публичный домен
+> Любое изменение `VITE_*` требует **пересборки** образа (Railway сделает это автоматически при изменении переменных).
 
-Dashboard → frontend → **Settings → Networking → Generate Domain**. Получишь `frontend-production-xxxx.up.railway.app`.
+### 4.3 Публичный домен
 
-### 3.4 Обновить backend CORS
+Service `frontend` → **Settings → Networking → Generate Domain**. Получишь `frontend-production-xxxx.up.railway.app`.
+
+### 4.4 Обновить backend CORS
 
 Вернись в Variables backend-сервиса и установи:
-```
+```env
 FRONTEND_URL=https://frontend-production-xxxx.up.railway.app
 ```
 Backend передеплоится автоматически.
 
-### 3.5 Проверка
+### 4.5 Проверка
 
 Открой `https://<frontend-domain>` в браузере:
-1. Должна загрузиться форма логина.
-2. DevTools → Network: запрос `POST /api/v1/auth/login` уходит на backend-домен.
-3. Логин `admin@sitescout.test / password` → должен вернуть 200 и `token`.
+1. Загружается форма логина.
+2. DevTools → Network: `POST /api/v1/auth/login` идёт на backend-домен.
+3. Логин `admin@sitescout.test / password` → 200 + `token` в ответе.
 4. После логина — должны загружаться площадки, ЖК, чеклисты.
 
 ---
 
-## 4. Обновления после первого деплоя
+## 5. Обновления после первого деплоя
 
-Каждый редеплой:
+Каждый редеплой — это просто `git push` в `develop`:
 
 ```powershell
-# Backend (включая миграции — выполнятся автоматически через entrypoint hook)
-cd backend
-railway up
-
-# Frontend (если поменялся VITE_API_BASE_URL — нужна пересборка)
-cd ..\frontend
-railway up
+cd "F:\SiteScout (2)\SiteScout"
+git add -A
+git commit -m "Описание изменений"
+git push origin develop
 ```
+
+Railway сам:
+- Замечает push, скачивает новый код
+- Пересобирает backend и/или frontend (зависит от Watch Paths)
+- Запускает entrypoint `10-laravel-deploy.sh` → миграции применяются автоматически
+
+Логи деплоя видны в dashboard каждого сервиса.
 
 ---
 
-## 5. Verification checklist
+## 6. Verification checklist
 
 - [ ] `GET https://<backend>/up` → 200
 - [ ] `GET https://<backend>/api/v1/` → JSON с `"status": "ok"`
 - [ ] `POST https://<backend>/api/v1/auth/login` с `admin@sitescout.test/password` → `{ "token": "..." }`
 - [ ] Открытие `https://<frontend>/` → SPA загружается, нет CORS-ошибок в консоли
 - [ ] Логин через UI → видны площадки/ЖК
-- [ ] Загрузка фото в аттачмент → файл доступен после `railway redeploy --service backend` (volume работает)
+- [ ] Загрузка фото в аттачмент → файл доступен после redeploy backend (volume работает)
 - [ ] Сброс пароля → письмо приходит (проверить в Resend → Logs)
 
 ---
 
-## 6. Возможные проблемы
+## 7. Возможные проблемы
 
 ### CORS error в браузере
-- Проверь, что в backend `FRONTEND_URL` точно совпадает с origin фронта (включая `https://`, без trailing `/`).
-- В `config/cors.php` уже стоит `supports_credentials: true` и `allowed_origins` берётся из `FRONTEND_URL` — менять не надо.
+- Проверь `FRONTEND_URL` в backend Variables: должен точно совпадать с origin фронта (`https://...`, без trailing `/`).
+- `config/cors.php` уже стоит `supports_credentials: true`, `allowed_origins` берётся из `FRONTEND_URL`.
 
 ### 500 на запросах к API
-- `railway logs --service backend` — смотри stack trace.
-- Чаще всего: не прокинули `APP_KEY` или DB переменные.
+- Открой логи backend в Railway dashboard.
+- Чаще всего: не прокинули `APP_KEY` или DB переменные не подцепились.
 
 ### Frontend ходит на `127.0.0.1:8000`
-- Значит `VITE_API_BASE_URL` не попал в билд. Проверь, что переменная установлена в Service `frontend`, **до** запуска `railway up` (build args читаются на этапе сборки).
-- Передеплой: `railway up` пересоберёт образ с новым значением.
+- `VITE_API_BASE_URL` не попал в билд. Проверь Variables сервиса frontend, потом **Redeploy** (пересобрать образ).
 
 ### Migration error при старте
-- Скорее всего сервис стартанул раньше, чем Postgres стал доступен. Railway обычно сам ждёт, но иногда первый деплой нужно просто перезапустить: dashboard → backend → ⋯ → Redeploy.
+- Postgres стартовал позже backend. Просто **Redeploy** backend ещё раз через dashboard.
 
 ### Письма не приходят
-- Проверь логи Resend (resend.com → Logs).
-- Без верифицированного домена `MAIL_FROM_ADDRESS` должен быть `onboarding@resend.dev`, иначе Resend отклонит письмо.
+- Без верифицированного домена в Resend `MAIL_FROM_ADDRESS` должен быть `onboarding@resend.dev`.
+- Логи: resend.com → Logs.
+
+### Railway собрал не тот сервис / выкатил frontend как backend
+- Проверь **Settings → Root Directory** у обоих сервисов: должно быть `backend` и `frontend` соответственно.
 
 ---
 
-## 7. Стоимость (ориентир)
+## 8. Структура файлов деплоя в репо
+
+```
+sitescout/
+├── .gitignore
+├── DEPLOY.md                       ← эта инструкция
+├── README.md
+├── backend/
+│   ├── Dockerfile                  ← образ Laravel (serversideup/php base)
+│   ├── .dockerignore
+│   ├── railway.toml                ← healthcheck /up, restart policy
+│   └── docker/
+│       └── 10-laravel-deploy.sh    ← миграции при старте контейнера
+└── frontend/
+    ├── Dockerfile                  ← multi-stage Vite build → Nginx static
+    ├── .dockerignore
+    ├── nginx.conf                  ← SPA fallback, listen $PORT
+    └── railway.toml                ← healthcheck /, restart policy
+```
+
+---
+
+## 9. Стоимость (ориентир)
 
 Railway Hobby ($5/мес кредит):
 - Postgres: ~$2–3/мес при низкой нагрузке

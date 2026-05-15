@@ -1,0 +1,883 @@
+openapi: 3.0.3
+info:
+  title: SiteScout API
+  version: 1.2.0
+  description: |
+    REST API сервиса SiteScout — подбор и оценка площадок под self-storage контейнеры.
+
+    Все эндпоинты, кроме `/auth/login`, `/auth/forgot-password` и `/auth/reset-password`,
+    требуют Bearer-токена Laravel Sanctum. После первого входа с временным паролем
+    весь API (кроме `/auth/me`, `/auth/logout` и `/auth/change-initial-password`)
+    блокируется middleware `password.changed`, пока пользователь не задаст постоянный пароль.
+
+    Роли: `admin`, `analyst`, `manager`. Разграничение прав описано в каждом эндпоинте.
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development
+tags:
+  - name: Auth
+  - name: Users
+  - name: Sites
+  - name: Checklist
+  - name: Risks
+  - name: Finance
+  - name: Visits
+  - name: Attachments
+  - name: Residential complexes
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ── Auth ───────────────────────────────────────────────────────────
+  /auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Логин
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  user:  { $ref: '#/components/schemas/User' }
+        '422': { description: Неверный email или пароль }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Выход (инвалидирует текущий токен)
+      responses:
+        '200': { description: OK }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Профиль текущего пользователя
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Отправить ссылку для сброса пароля
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200': { description: OK (по соображениям безопасности всегда 200) }
+        '429': { description: Слишком много запросов }
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Сбросить пароль по токену из письма
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, token, password, password_confirmation]
+              properties:
+                email:                  { type: string, format: email }
+                token:                  { type: string }
+                password:               { type: string, format: password, minLength: 8 }
+                password_confirmation:  { type: string, format: password }
+      responses:
+        '200': { description: Пароль обновлён }
+        '422': { description: Невалидный токен или пароль }
+
+  /auth/change-initial-password:
+    post:
+      tags: [Auth]
+      summary: Принудительная смена временного пароля при первом входе
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, password_confirmation]
+              properties:
+                password:              { type: string, format: password, minLength: 8 }
+                password_confirmation: { type: string, format: password }
+      responses:
+        '200':
+          description: Пароль обновлён, флаг password_change_required снят
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+
+  # ── Users (admin) ──────────────────────────────────────────────────
+  /users:
+    get:
+      tags: [Users]
+      summary: Список пользователей (только admin)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+        '403': { description: Доступ запрещён }
+    post:
+      tags: [Users]
+      summary: Создать пользователя с временным паролем (только admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, temporary_password, role]
+              properties:
+                name:               { type: string }
+                email:              { type: string, format: email }
+                temporary_password: { type: string, minLength: 8 }
+                role:               { $ref: '#/components/schemas/Role' }
+      responses:
+        '201':
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+
+  /users/{user}/role:
+    patch:
+      tags: [Users]
+      summary: Изменить роль пользователя (только admin)
+      parameters:
+        - { name: user, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: '#/components/schemas/Role' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+
+  /users/{user}:
+    delete:
+      tags: [Users]
+      summary: Удалить пользователя (только admin)
+      parameters:
+        - { name: user, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+
+  # ── Residential complexes ──────────────────────────────────────────
+  /residential-complexes:
+    get:
+      tags: [Residential complexes]
+      summary: Список ЖК
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ResidentialComplex' }
+    post:
+      tags: [Residential complexes]
+      summary: Создать ЖК (admin / analyst)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResidentialComplexInput' }
+      responses:
+        '201':
+          description: Создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResidentialComplex' }
+
+  /residential-complexes/{residential_complex}:
+    get:
+      tags: [Residential complexes]
+      summary: Карточка ЖК
+      parameters:
+        - { name: residential_complex, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResidentialComplex' }
+    put:
+      tags: [Residential complexes]
+      summary: Обновить ЖК (admin / analyst)
+      parameters:
+        - { name: residential_complex, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResidentialComplexInput' }
+      responses:
+        '200': { description: Обновлён }
+
+  # ── Sites ──────────────────────────────────────────────────────────
+  /sites:
+    get:
+      tags: [Sites]
+      summary: Список площадок (paginated)
+      description: |
+        По умолчанию архив (`status=archived`) **скрывается** — он доступен только
+        при явной фильтрации `?status=archived`. Параметр `q` ищет по `title`,
+        `address`, `district` (ILIKE).
+      parameters:
+        - { name: status,     in: query, schema: { $ref: '#/components/schemas/SiteStatus' } }
+        - { name: district,   in: query, schema: { type: string } }
+        - { name: min_score,  in: query, schema: { type: integer, minimum: 0, maximum: 100 } }
+        - { name: q,          in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Постраничный список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Site' }
+                  meta: { type: object, description: Laravel pagination meta }
+    post:
+      tags: [Sites]
+      summary: Создать площадку (admin / analyst)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteInput' }
+      responses:
+        '201':
+          description: Создана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Site' }
+
+  /sites/{site}:
+    get:
+      tags: [Sites]
+      summary: Полная карточка площадки (с finance, risks, visits, checklist)
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Site' }
+    put:
+      tags: [Sites]
+      summary: Обновить площадку (admin / analyst)
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteInput' }
+      responses:
+        '200': { description: Обновлена }
+    delete:
+      tags: [Sites]
+      summary: Удалить площадку (admin / analyst)
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Удалена }
+
+  /sites/{site}/status:
+    patch:
+      tags: [Sites]
+      summary: Сменить статус площадки (admin / manager)
+      description: |
+        Перевод в `approved` блокируется, если:
+        - не рассчитан балл (`site_score = 0`),
+        - не рассчитана финансовая модель,
+        - есть критический риск без плана митигации.
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: '#/components/schemas/SiteStatus' }
+      responses:
+        '200': { description: Статус обновлён }
+        '422': { description: Правило согласования не выполнено }
+
+  /sites/{site}/passport:
+    get:
+      tags: [Sites]
+      summary: Паспорт площадки — итоговое go/no-go
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Passport' }
+
+  /sites/{site}/stats:
+    get:
+      tags: [Sites]
+      summary: Быстрая сводка по площадке
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  visits_count:      { type: integer }
+                  risks_count:       { type: integer }
+                  attachments_count: { type: integer }
+
+  # ── Checklist ──────────────────────────────────────────────────────
+  /checklist-items:
+    get:
+      tags: [Checklist]
+      summary: Справочник критериев
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ChecklistItem' }
+    post:
+      tags: [Checklist]
+      summary: Добавить критерий (только admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChecklistItemInput' }
+      responses:
+        '201': { description: Создан }
+
+  /checklist-items/{checklist_item}:
+    put:
+      tags: [Checklist]
+      summary: Обновить критерий (только admin)
+      parameters:
+        - { name: checklist_item, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChecklistItemInput' }
+      responses:
+        '200': { description: Обновлён }
+
+  /sites/{site}/checklist:
+    get:
+      tags: [Checklist]
+      summary: Значения чеклиста по площадке
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SiteChecklistValue' }
+    put:
+      tags: [Checklist]
+      summary: Bulk-обновление значений + пересчёт site_score (admin / analyst)
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [checklist_item_id, value]
+                    properties:
+                      checklist_item_id: { type: integer }
+                      value:             { type: integer, minimum: 0, maximum: 5 }
+                      comment:           { type: string, nullable: true }
+      responses:
+        '200': { description: Балл пересчитан }
+
+  /sites/{site}/recalculate-score:
+    post:
+      tags: [Checklist]
+      summary: Принудительный пересчёт site_score (admin / analyst)
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+
+  # ── Risks ──────────────────────────────────────────────────────────
+  /sites/{site}/risks:
+    get:
+      tags: [Risks]
+      summary: Риски площадки
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Risk' }
+    post:
+      tags: [Risks]
+      summary: Добавить риск (admin / analyst)
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RiskInput' }
+      responses:
+        '201': { description: Создан }
+
+  /risks/{risk}:
+    put:
+      tags: [Risks]
+      summary: Обновить риск (admin / analyst)
+      parameters:
+        - { name: risk, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RiskInput' }
+      responses:
+        '200': { description: Обновлён }
+    delete:
+      tags: [Risks]
+      summary: Удалить риск (admin / analyst)
+      parameters:
+        - { name: risk, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Удалён }
+
+  # ── Finance ────────────────────────────────────────────────────────
+  /sites/{site}/finance:
+    get:
+      tags: [Finance]
+      summary: Финмодель площадки (assumptions + results)
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FinancialModel' }
+    put:
+      tags: [Finance]
+      summary: Сохранить допущения и пересчитать (admin / analyst)
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinanceAssumptions' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FinancialModel' }
+
+  /sites/{site}/finance/recalculate:
+    post:
+      tags: [Finance]
+      summary: Принудительный пересчёт (admin / analyst)
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+
+  /sites/{site}/finance/summary:
+    get:
+      tags: [Finance]
+      summary: Краткая сводка финмодели
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FinanceResults' }
+
+  # ── Visits ─────────────────────────────────────────────────────────
+  /sites/{site}/visits:
+    get:
+      tags: [Visits]
+      summary: Визиты на площадку
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Visit' }
+    post:
+      tags: [Visits]
+      summary: Добавить визит (admin / analyst)
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VisitInput' }
+      responses:
+        '201': { description: Создан }
+
+  /visits/{visit}:
+    get:
+      tags: [Visits]
+      summary: Карточка визита
+      parameters:
+        - { name: visit, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Visit' }
+    put:
+      tags: [Visits]
+      summary: Обновить визит (admin / analyst)
+      parameters:
+        - { name: visit, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VisitInput' }
+      responses:
+        '200': { description: Обновлён }
+    delete:
+      tags: [Visits]
+      summary: Удалить визит (admin / analyst)
+      parameters:
+        - { name: visit, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: Удалён }
+
+  # ── Attachments ────────────────────────────────────────────────────
+  /attachments:
+    get:
+      tags: [Attachments]
+      summary: Список вложений по сущности
+      parameters:
+        - { name: entity_type, in: query, required: true, schema: { type: string, enum: [site, visit, risk] } }
+        - { name: entity_id,   in: query, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Attachment' }
+    post:
+      tags: [Attachments]
+      summary: Загрузить файл или сохранить URL-вложение (admin / analyst)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [entity_type, entity_id]
+              properties:
+                entity_type: { type: string, enum: [site, visit, risk] }
+                entity_id:   { type: integer }
+                kind:        { type: string, enum: [photo, scheme, document, other] }
+                file:        { type: string, format: binary }
+                url:         { type: string, description: Альтернатива file — внешняя ссылка }
+      responses:
+        '201': { description: Создан }
+
+  /attachments/{attachment}:
+    delete:
+      tags: [Attachments]
+      summary: Удалить вложение (admin / analyst)
+      parameters:
+        - { name: attachment, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Sanctum token
+
+  schemas:
+    Role:
+      type: string
+      enum: [admin, analyst, manager]
+
+    SiteStatus:
+      type: string
+      enum: [new, screening, inspection, scoring, negotiation, approved, rejected, launched, archived]
+
+    User:
+      type: object
+      properties:
+        id:                        { type: integer }
+        name:                      { type: string }
+        email:                     { type: string, format: email }
+        role:                      { $ref: '#/components/schemas/Role' }
+        password_change_required:  { type: boolean }
+        created_at:                { type: string, format: date-time }
+
+    ResidentialComplexInput:
+      type: object
+      required: [name, city, district, address]
+      properties:
+        name:           { type: string }
+        city:           { type: string }
+        district:       { type: string, nullable: true }
+        address:        { type: string }
+        lat:            { type: number, format: float, nullable: true }
+        lng:            { type: number, format: float, nullable: true }
+        developer_name: { type: string, nullable: true }
+        notes:          { type: string, nullable: true }
+
+    ResidentialComplex:
+      allOf:
+        - { $ref: '#/components/schemas/ResidentialComplexInput' }
+        - type: object
+          properties:
+            id:         { type: integer }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    SiteInput:
+      type: object
+      required: [title, city, address, site_type, area_m2, status, owner_type]
+      properties:
+        residential_complex_id: { type: integer, nullable: true }
+        title:                  { type: string, maxLength: 255 }
+        city:                   { type: string, maxLength: 120 }
+        district:               { type: string, maxLength: 120, nullable: true, description: Может быть null — у части российских адресов района нет }
+        address:                { type: string, maxLength: 255 }
+        lat:                    { type: number, format: float, nullable: true }
+        lng:                    { type: number, format: float, nullable: true }
+        site_type:              { type: string, enum: [yard, parking, tech_zone, other] }
+        area_m2:                { type: number, format: float, minimum: 0, exclusiveMinimum: true }
+        status:                 { $ref: '#/components/schemas/SiteStatus' }
+        owner_type:             { type: string, enum: [management_company, developer, municipality, private] }
+        contact_name:           { type: string, nullable: true }
+        contact_phone:          { type: string, nullable: true }
+
+    Site:
+      allOf:
+        - { $ref: '#/components/schemas/SiteInput' }
+        - type: object
+          properties:
+            id:         { type: integer }
+            site_score: { type: integer, minimum: 0, maximum: 100 }
+            risk_score: { type: integer, minimum: 0, maximum: 100 }
+            created_by: { type: integer, nullable: true }
+            finance:    { $ref: '#/components/schemas/FinancialModel' }
+            risks:
+              type: array
+              items: { $ref: '#/components/schemas/Risk' }
+            visits:
+              type: array
+              items: { $ref: '#/components/schemas/Visit' }
+            checklist_values:
+              type: array
+              items: { $ref: '#/components/schemas/SiteChecklistValue' }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    Passport:
+      type: object
+      properties:
+        site_id:        { type: integer }
+        recommended:    { type: boolean, description: site_score ≥ 70 ∧ risk_score ≤ 50 ∧ payback ≤ 18 мес }
+        site_score:     { type: integer }
+        risk_score:     { type: integer }
+        payback_months: { type: integer, nullable: true }
+        roi_12m:        { type: integer, description: '% за 12 мес' }
+
+    ChecklistItem:
+      type: object
+      properties:
+        id:       { type: integer }
+        code:     { type: string }
+        title:    { type: string }
+        category: { type: string, enum: [access, legal, engineering, sales, security, visibility, neighbors] }
+        weight:   { type: integer, minimum: 1 }
+
+    ChecklistItemInput:
+      type: object
+      required: [code, title, category, weight]
+      properties:
+        code:     { type: string }
+        title:    { type: string }
+        category: { type: string }
+        weight:   { type: integer, minimum: 1 }
+
+    SiteChecklistValue:
+      type: object
+      properties:
+        id:                { type: integer }
+        site_id:           { type: integer }
+        checklist_item_id: { type: integer }
+        value:             { type: integer, minimum: 0, maximum: 5 }
+        comment:           { type: string, nullable: true }
+        checklist_item:    { $ref: '#/components/schemas/ChecklistItem' }
+
+    RiskInput:
+      type: object
+      required: [type, severity, probability, description]
+      properties:
+        type:        { type: string, enum: [legal, security, neighbors, engineering, competition, finance, regulatory, other] }
+        severity:    { type: string, enum: [low, medium, high, critical] }
+        probability: { type: string, enum: [low, medium, high] }
+        description: { type: string }
+        mitigation:  { type: string, nullable: true }
+
+    Risk:
+      allOf:
+        - { $ref: '#/components/schemas/RiskInput' }
+        - type: object
+          properties:
+            id:      { type: integer }
+            site_id: { type: integer }
+
+    FinanceAssumptions:
+      type: object
+      required: [containers_count, units_per_container, occupancy_percent, capex_total, opex_total, price_per_unit]
+      properties:
+        containers_count:    { type: integer, minimum: 1 }
+        units_per_container: { type: integer, minimum: 1 }
+        occupancy_percent:   { type: number, minimum: 0, maximum: 100 }
+        capex_total:         { type: number, minimum: 0 }
+        opex_total:          { type: number, minimum: 0 }
+        price_per_unit:
+          type: object
+          additionalProperties: { type: number, minimum: 0 }
+          example: { '2m2': 4500, '3m2': 6500, '5m2': 9000 }
+
+    FinanceResults:
+      type: object
+      properties:
+        monthly_revenue:      { type: integer, description: руб./мес }
+        monthly_gross_profit: { type: integer, description: руб./мес }
+        payback_months:       { type: integer, nullable: true }
+        roi_12m:              { type: integer, description: '% за 12 мес' }
+        breakeven_occupancy:  { type: integer, description: '% безубыточной заполняемости' }
+
+    FinancialModel:
+      type: object
+      properties:
+        id:               { type: integer }
+        site_id:          { type: integer }
+        assumptions_json: { $ref: '#/components/schemas/FinanceAssumptions' }
+        results_json:     { $ref: '#/components/schemas/FinanceResults' }
+
+    VisitInput:
+      type: object
+      required: [visit_date]
+      properties:
+        visit_date:         { type: string, format: date }
+        visited_by_user_id: { type: integer, nullable: true }
+        summary:            { type: string, nullable: true }
+
+    Visit:
+      allOf:
+        - { $ref: '#/components/schemas/VisitInput' }
+        - type: object
+          properties:
+            id:      { type: integer }
+            site_id: { type: integer }
+
+    Attachment:
+      type: object
+      properties:
+        id:            { type: integer }
+        entity_type:   { type: string, enum: [site, visit, risk] }
+        entity_id:     { type: integer }
+        kind:          { type: string, enum: [photo, scheme, document, other] }
+        path:          { type: string, description: Внутренний путь в storage или внешний URL }
+        url:           { type: string, description: Готовый URL для отдачи клиенту }
+        original_name: { type: string, nullable: true }
+        mime_type:     { type: string, nullable: true }
+        size:          { type: integer, nullable: true }

@@ -46,5 +46,23 @@ $AS_WWW php artisan migrate --force --no-interaction
 
 $AS_WWW php artisan storage:link || true
 
+# ── Seeding (idempotent) ────────────────────────────────────────
+# Seed only when the database is empty. Counting users is enough because
+# DatabaseSeeder always inserts at least the admin user.
+USER_COUNT=$($AS_WWW php artisan tinker --execute='echo \App\Models\User::count();' 2>/dev/null | tr -d '[:space:]')
+
+case "$USER_COUNT" in
+    ''|*[!0-9]*)
+        echo ">> Could not determine user count (got: '$USER_COUNT') — skipping seed to be safe."
+        ;;
+    0)
+        echo ">> Database empty — seeding demo data..."
+        $AS_WWW php artisan db:seed --force --no-interaction
+        ;;
+    *)
+        echo ">> Database already populated ($USER_COUNT users) — skipping seed."
+        ;;
+esac
+
 # Final ownership sweep — covers any files written as root.
 chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache 2>/dev/null || true

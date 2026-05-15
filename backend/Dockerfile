@@ -5,7 +5,7 @@
 # Base: serversideup/php — bundles PHP-FPM + Nginx + s6-overlay,
 # already includes pdo_pgsql, gd, zip, intl, bcmath, mbstring, opcache.
 #
-FROM serversideup/php:8.3-fpm-nginx-alpine
+FROM serversideup/php:8.4-fpm-nginx-alpine
 
 # Railway injects $PORT at runtime; the base image listens on it via
 # the NGINX_LISTEN / SSL_MODE env vars below.

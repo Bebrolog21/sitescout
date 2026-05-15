@@ -24,6 +24,13 @@ class DemoDataSeeder extends Seeder
         RiskService $risk,
         FinanceService $finance
     ): void {
+        // Идемпотентность: ResidentialComplex — маркер демо-данных.
+        // Если он уже есть — считаем, что демо-набор уже залит, и выходим.
+        if (ResidentialComplex::query()->exists()) {
+            $this->command?->info('Демо-данные уже есть, пропускаем DemoDataSeeder.');
+            return;
+        }
+
         $authorId = User::query()->where('role', 'admin')->value('id')
                  ?? User::query()->value('id');
 

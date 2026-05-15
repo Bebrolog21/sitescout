@@ -10,14 +10,15 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        // Единственный стартовый аккаунт — администратор.
-        // Остальных пользователей создаёт сам admin через интерфейс.
-        User::create([
-            'name'     => 'Администратор',
-            'email'    => 'admin@sitescout.test',
-            'password' => Hash::make('password'),
-            'role'     => 'admin',
-        ]);
+        // Идемпотентно создаём админа: если такой email уже есть, не трогаем.
+        User::firstOrCreate(
+            ['email' => 'admin@sitescout.test'],
+            [
+                'name'     => 'Администратор',
+                'password' => Hash::make('password'),
+                'role'     => 'admin',
+            ],
+        );
 
         $this->call(DemoDataSeeder::class);
     }

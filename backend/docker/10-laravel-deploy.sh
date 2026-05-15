@@ -47,32 +47,13 @@ $AS_WWW php artisan migrate --force --no-interaction
 
 $AS_WWW php artisan storage:link --force
 
-# ── Seeding (idempotent, two-tier) ──────────────────────────────
-# Tier 1: if the users table is empty → run the full DatabaseSeeder
-#         (creates admin user + invokes DemoDataSeeder).
-# Tier 2: if users exist but residential_complexes is empty → demo data
-#         was never seeded (e.g. partial manual run) → seed only the
-#         demo class so we don't try to re-create the admin user.
-# Otherwise: nothing to do.
-USER_COUNT=$($AS_WWW php artisan tinker --execute='echo \App\Models\User::count();' 2>/dev/null | tr -d '[:space:]')
-COMPLEX_COUNT=$($AS_WWW php artisan tinker --execute='echo \App\Models\ResidentialComplex::count();' 2>/dev/null | tr -d '[:space:]')
-
-is_zero_int() {
-    case "$1" in
-        0) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-if is_zero_int "$USER_COUNT"; then
-    echo ">> Empty DB — running full seed (admin + demo data)..."
-    $AS_WWW php artisan db:seed --force --no-interaction
-elif is_zero_int "$COMPLEX_COUNT"; then
-    echo ">> Admin exists but demo data missing — seeding DemoDataSeeder only..."
-    $AS_WWW php artisan db:seed --force --no-interaction --class=DemoDataSeeder
-else
-    echo ">> Database already populated (${USER_COUNT} users, ${COMPLEX_COUNT} complexes) — skipping seed."
-fi
+# ── Seeding ─────────────────────────────────────────────────────
+# Both seeders are idempotent at the application level:
+#   - DatabaseSeeder uses User::firstOrCreate for admin.
+#   - DemoDataSeeder early-returns if any ResidentialComplex exists.
+# So we can safely run db:seed on every boot.
+echo ">> Running db:seed (idempotent)..."
+$AS_WWW php artisan db:seed --force --no-interaction
 
 # Final ownership sweep — covers any files written as root.
 chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache 2>/dev/null || true

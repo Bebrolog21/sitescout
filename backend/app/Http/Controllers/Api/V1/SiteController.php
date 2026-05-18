@@ -9,8 +9,10 @@ use App\Http\Requests\SiteUpdateRequest;
 use App\Models\Attachment;
 use App\Models\Site;
 use App\Services\PassportService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 class SiteController extends Controller
 {
@@ -68,6 +70,23 @@ class SiteController extends Controller
     public function passport(Site $site, PassportService $passportService): JsonResponse
     {
         return response()->json($passportService->build($site));
+    }
+
+    public function passportPdf(Request $request, Site $site, PassportService $passportService): Response
+    {
+        $data = $passportService->buildFull($site);
+
+        $tz = (string) $request->string('tz');
+        if ($tz !== '' && in_array($tz, \DateTimeZone::listIdentifiers(), true)) {
+            $data['generated_at'] = $data['generated_at']->setTimezone($tz);
+        }
+
+        $pdf = Pdf::loadView('passport.pdf', $data)
+            ->setPaper('a4', 'portrait');
+
+        $filename = sprintf('passport-site-%d.pdf', $site->id);
+
+        return $pdf->download($filename);
     }
 
     public function stats(Site $site): JsonResponse

@@ -1,4 +1,6 @@
 // src/features/sites/SiteDetailPage.jsx
+import { useState } from "react";
+import { downloadSitePassportPdf } from "../../shared/api/sites.js";
 import { calcRecommendation } from "../../shared/lib/calculations.js";
 import { formatCurrency } from "../../shared/lib/formatters.js";
 import { StatusBadge } from "../../shared/ui/StatusBadge.jsx";
@@ -30,6 +32,21 @@ export function SiteDetailPage({
   const recommendation = calcRecommendation(site);
   const payback = site.finance?.results?.payback_months ?? null;
 
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfErr, setPdfErr] = useState("");
+
+  const handleDownloadPdf = async () => {
+    setPdfErr("");
+    setPdfLoading(true);
+    try {
+      await downloadSitePassportPdf(site.id);
+    } catch (err) {
+      setPdfErr(err.message ?? "Не удалось скачать PDF");
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
   return (
     <section className="page-stack">
       {/* ── Верхняя навигация ── */}
@@ -46,8 +63,18 @@ export function SiteDetailPage({
               ? "✓ Рекомендуется"
               : "✗ Не рекомендуется"}
           </span>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={pdfLoading}
+            title="Скачать паспорт площадки в PDF"
+          >
+            {pdfLoading ? "Готовим PDF…" : "Скачать PDF"}
+          </button>
         </div>
       </div>
+      {pdfErr && <div className="form-error">{pdfErr}</div>}
 
       {/* ── Заголовок площадки ── */}
       <header className="page-header">

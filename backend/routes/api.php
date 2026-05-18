@@ -65,7 +65,8 @@ Route::prefix('v1')->group(function (): void {
             // ── Площадки: чтение всем ─────────────────────────────
             Route::get('/sites',                  [SiteController::class, 'index']);
             Route::get('/sites/{site}',           [SiteController::class, 'show']);
-            Route::get('/sites/{site}/passport',  [SiteController::class, 'passport']);
+            Route::get('/sites/{site}/passport',     [SiteController::class, 'passport']);
+            Route::get('/sites/{site}/passport.pdf', [SiteController::class, 'passportPdf']);
             Route::get('/sites/{site}/stats',     [SiteController::class, 'stats']);
 
             // Площадки: создание/редактирование контента — admin + analyst

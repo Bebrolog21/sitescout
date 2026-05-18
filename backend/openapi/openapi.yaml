@@ -368,6 +368,19 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Passport' }
 
+  /sites/{site}/passport.pdf:
+    get:
+      tags: [Sites]
+      summary: Паспорт площадки в формате PDF (для печати/инвестора)
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: PDF-файл паспорта площадки
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+
   /sites/{site}/stats:
     get:
       tags: [Sites]

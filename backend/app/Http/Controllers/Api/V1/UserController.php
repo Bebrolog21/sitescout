@@ -42,7 +42,7 @@ class UserController extends Controller
         // не проходят, хотя они корректны по синтаксису и нужны для демо.
         $data = $request->validate(
             [
-                'name'              => ['required', 'string', 'max:255'],
+                'name'              => ['required', 'string', 'max:120'],
                 'email'             => ['required', 'email:rfc,dns', 'max:255', 'unique:users,email'],
                 'temporary_password' => ['required', 'string', Password::min(8)],
                 'role'              => ['required', 'in:admin,analyst,manager'],

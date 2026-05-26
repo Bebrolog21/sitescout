@@ -129,7 +129,7 @@ class DemoDataSeeder extends Seeder
                 'site_type'    => 'yard', 'area_m2' => 180,
                 'status'       => 'approved',
                 'owner_type'   => 'management_company',
-                'contact_name' => 'Сергей Котов', 'contact_phone' => '+7 (3812) 401-234',
+                'contact_name' => 'Сергей Котов', 'contact_phone' => '+7 (913) 401-23-45',
             ],
             [
                 'complex' => $serebryanyy,
@@ -151,7 +151,7 @@ class DemoDataSeeder extends Seeder
                 'site_type'    => 'tech_zone', 'area_m2' => 240,
                 'status'       => 'rejected',
                 'owner_type'   => 'municipality',
-                'contact_name' => 'Олег Краснов', 'contact_phone' => '+7 (3812) 765-432',
+                'contact_name' => 'Олег Краснов', 'contact_phone' => '+7 (904) 765-43-21',
             ],
 
             // ── Парковый (Омск, Советский) ────────────────────────────────────
@@ -223,7 +223,7 @@ class DemoDataSeeder extends Seeder
                 'site_type'    => 'parking', 'area_m2' => 280,
                 'status'       => 'new',
                 'owner_type'   => 'private',
-                'contact_name' => 'Мария Власова', 'contact_phone' => '+7 (3812) 999-101',
+                'contact_name' => 'Мария Власова', 'contact_phone' => '+7 (923) 999-10-15',
             ],
             [
                 'complex' => null,
@@ -306,11 +306,11 @@ class DemoDataSeeder extends Seeder
             // Site 3 — launched, всё закрыто
             [
                 ['engineering', 'low', 'low', 'Дренаж требует прочистки перед запуском.',                       'Подрядчик нанят, работы 10.05.2026.'],
-                ['regulatory',  'low', 'low', 'Нужна табличка с режимом работы и контактами по 44-ФЗ.',          'Табличка изготовлена и установлена.'],
+                ['legal',       'low', 'low', 'Нужна табличка с режимом работы и контактами по 44-ФЗ.',          'Табличка изготовлена и установлена.'],
             ],
             // Site 4 — negotiation
             [
-                ['regulatory',  'medium', 'medium', 'Зонирование коммерческое, но требуется согласование с архитектурой.', null],
+                ['legal',       'medium', 'medium', 'Зонирование коммерческое, но требуется согласование с архитектурой.', null],
                 ['engineering', 'medium', 'medium', 'Уклон участка более 5%, нужно выравнивание.',                         'Смета подрядчика: 180 000 руб., работы в плане.'],
             ],
             // Site 5 — inspection
@@ -326,7 +326,7 @@ class DemoDataSeeder extends Seeder
             // Site 7 — screening: высокий риск (легальный, без митигации)
             [
                 ['legal',       'high',     'medium', 'Право собственности на земельный участок оспаривается в суде.', null],
-                ['regulatory',  'critical', 'high',   'Зона санитарной охраны водоисточника — запрет на размещение.',   null],
+                ['legal',       'critical', 'high',   'Зона санитарной охраны водоисточника — запрет на размещение.',   null],
             ],
             // Site 8 — new
             [
@@ -335,7 +335,7 @@ class DemoDataSeeder extends Seeder
             ],
             // Site 9 — screening
             [
-                ['regulatory',  'medium','high',  'Историческая зона города — могут запретить контейнеры.', 'Юрист готовит запрос в Управление архитектуры.'],
+                ['legal',       'medium','high',  'Историческая зона города — могут запретить контейнеры.', 'Юрист готовит запрос в Управление архитектуры.'],
                 ['engineering', 'low',   'medium','Нет ливневой канализации, нужна локальная система.',     null],
             ],
         ];

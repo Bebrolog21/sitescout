@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SiteVisit extends Model
 {
@@ -15,4 +16,14 @@ class SiteVisit extends Model
         'visited_by_user_id',
         'summary',
     ];
+
+    public function site(): BelongsTo
+    {
+        return $this->belongsTo(Site::class);
+    }
+
+    public function visitor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'visited_by_user_id');
+    }
 }

@@ -20,8 +20,8 @@ class ChecklistItemController extends Controller
 
         $item = ChecklistItem::create($request->validate([
             'code' => ['required', 'string', 'max:50', 'unique:checklist_items,code'],
-            'title' => ['required', 'string', 'max:255'],
-            'category' => ['required', 'string', 'max:50'],
+            'title' => ['required', 'string', 'max:200'],
+            'category' => ['required', 'string', 'max:30', 'in:access,security,visibility,legal,engineering,neighbors,sales'],
             'weight' => ['required', 'integer', 'between:1,10'],
         ]));
 
@@ -33,8 +33,8 @@ class ChecklistItemController extends Controller
         abort_unless($request->user()?->isAdmin(), 403, 'Only admin can manage checklist items.');
 
         $checklistItem->update($request->validate([
-            'title' => ['required', 'string', 'max:255'],
-            'category' => ['required', 'string', 'max:50'],
+            'title' => ['required', 'string', 'max:200'],
+            'category' => ['required', 'string', 'max:30', 'in:access,security,visibility,legal,engineering,neighbors,sales'],
             'weight' => ['required', 'integer', 'between:1,10'],
         ]));
 

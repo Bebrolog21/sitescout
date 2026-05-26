@@ -17,13 +17,13 @@ class ResidentialComplexController extends Controller
     public function store(Request $request): JsonResponse
     {
         $complex = ResidentialComplex::create($request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            'name' => ['required', 'string', 'max:150'],
             'city' => ['required', 'string', 'max:120'],
             'district' => ['nullable', 'string', 'max:120'],
             'address' => ['required', 'string', 'max:255'],
             'lat' => ['nullable', 'numeric'],
             'lng' => ['nullable', 'numeric'],
-            'developer_name' => ['nullable', 'string', 'max:255'],
+            'developer_name' => ['nullable', 'string', 'max:200'],
             'notes' => ['nullable', 'string'],
         ]));
 
@@ -38,13 +38,13 @@ class ResidentialComplexController extends Controller
     public function update(Request $request, ResidentialComplex $residentialComplex): JsonResponse
     {
         $residentialComplex->update($request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            'name' => ['required', 'string', 'max:150'],
             'city' => ['required', 'string', 'max:120'],
             'district' => ['nullable', 'string', 'max:120'],
             'address' => ['required', 'string', 'max:255'],
             'lat' => ['nullable', 'numeric'],
             'lng' => ['nullable', 'numeric'],
-            'developer_name' => ['nullable', 'string', 'max:255'],
+            'developer_name' => ['nullable', 'string', 'max:200'],
             'notes' => ['nullable', 'string'],
         ]));
 

@@ -186,6 +186,7 @@ export function SitesPage({ sites, user, onCreateSite }) {
                   value={draft.title}
                   onChange={(e) => upd("title", e.target.value)}
                   required
+                  maxLength={100}
                   placeholder="ЖК Северный"
                 />
               </label>

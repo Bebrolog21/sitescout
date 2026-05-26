@@ -19,7 +19,7 @@ class VisitController extends Controller
     {
         $visit = $site->visits()->create($request->validate([
             'visit_date' => ['required', 'date'],
-            'visited_by_user_id' => ['required', 'integer'],
+            'visited_by_user_id' => ['required', 'integer', 'exists:users,id'],
             'summary' => ['required', 'string'],
         ]));
 
@@ -35,7 +35,7 @@ class VisitController extends Controller
     {
         $visit->update($request->validate([
             'visit_date' => ['required', 'date'],
-            'visited_by_user_id' => ['required', 'integer'],
+            'visited_by_user_id' => ['required', 'integer', 'exists:users,id'],
             'summary' => ['required', 'string'],
         ]));
 

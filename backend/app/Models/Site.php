@@ -36,6 +36,11 @@ class Site extends Model
         return $this->belongsTo(ResidentialComplex::class);
     }
 
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
     public function checklistValues(): HasMany
     {
         return $this->hasMany(SiteChecklistValue::class);

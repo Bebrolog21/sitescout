@@ -15,7 +15,7 @@ class SiteStoreRequest extends FormRequest
     {
         return [
             'residential_complex_id' => ['nullable', 'integer'],
-            'title' => ['required', 'string', 'max:255'],
+            'title' => ['required', 'string', 'max:100'],
             'city' => ['required', 'string', 'max:120'],
             // Район необязателен — у многих российских адресов его просто нет
             // (особенно в малых городах и центрах крупных).
@@ -28,7 +28,7 @@ class SiteStoreRequest extends FormRequest
             'status' => ['required', 'in:new,screening,inspection,scoring,negotiation,approved,rejected,launched,archived'],
             'owner_type' => ['required', 'in:management_company,developer,municipality,private'],
             'contact_name' => ['nullable', 'string', 'max:255'],
-            'contact_phone' => ['nullable', 'string', 'max:50'],
+            'contact_phone' => ['nullable', 'string', 'regex:/^\+7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/'],
         ];
     }
 
@@ -39,9 +39,10 @@ class SiteStoreRequest extends FormRequest
             'string' => 'Поле «:attribute» должно быть строкой.',
             'numeric' => 'Поле «:attribute» должно быть числом.',
             'integer' => 'Поле «:attribute» должно быть целым числом.',
-            'max.string' => 'Поле «:attribute» не должно быть длиннее :max символов.',
-            'gt.numeric' => 'Поле «:attribute» должно быть больше :value.',
+            'max' => 'Поле «:attribute» не должно быть длиннее :max символов.',
+            'gt' => 'Поле «:attribute» должно быть больше :value.',
             'in' => 'Недопустимое значение для поля «:attribute».',
+            'contact_phone.regex' => 'Телефон должен соответствовать маске «+7 (XXX) XXX-XX-XX».',
         ];
     }
 

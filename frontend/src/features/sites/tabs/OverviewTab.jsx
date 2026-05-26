@@ -209,6 +209,7 @@ export function OverviewTab({ site, user, onRefresh, onUpdateStatus }) {
                   value={draft.title}
                   onChange={(e) => upd("title", e.target.value)}
                   required
+                  maxLength={100}
                 />
               </label>
               <div className="field field--full">

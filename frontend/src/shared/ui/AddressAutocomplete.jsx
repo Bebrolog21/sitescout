@@ -15,9 +15,51 @@ import { createPortal } from 'react-dom';
 const DADATA_URL =
   import.meta.env.VITE_DADATA_URL ??
   'https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address';
+const DADATA_GEOLOCATE_URL =
+  import.meta.env.VITE_DADATA_GEOLOCATE_URL ??
+  'https://suggestions.dadata.ru/suggestions/api/4_1/rs/geolocate/address';
 const DADATA_TOKEN = import.meta.env.VITE_DADATA_TOKEN ?? '';
 const MIN_QUERY_LENGTH = 3;
 const DEBOUNCE_MS = 250;
+
+// Координаты крупных российских городов имеют city_district в БД DaData,
+// но для уровня "улица" это поле часто пустое. Когда первичный pick не дал
+// район, добиваем reverse-геокодом через /geolocate/address.
+async function enrichDistrictByCoords(lat, lng) {
+  if (!DADATA_TOKEN) {
+    // eslint-disable-next-line no-console
+    console.warn('[DaData /geolocate] токен не задан (VITE_DADATA_TOKEN)');
+    return null;
+  }
+  if (lat == null || lng == null) {
+    // eslint-disable-next-line no-console
+    console.warn('[DaData /geolocate] нет координат');
+    return null;
+  }
+  try {
+    const r = await fetch(DADATA_GEOLOCATE_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Token ${DADATA_TOKEN}`,
+      },
+      body: JSON.stringify({ lat, lon: lng, count: 1, radius_meters: 200 }),
+    });
+    if (!r.ok) {
+      // eslint-disable-next-line no-console
+      console.warn(`[DaData /geolocate] HTTP ${r.status}`, await r.text());
+      return null;
+    }
+    const data = await r.json();
+    const first = Array.isArray(data?.suggestions) ? data.suggestions[0] : null;
+    return first?.data ?? null;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[DaData /geolocate] ошибка запроса:', e);
+    return null;
+  }
+}
 
 export function AddressAutocomplete({
   value,
@@ -109,9 +151,44 @@ export function AddressAutocomplete({
 
   const pick = (item) => {
     const parsed = parseDaData(item);
+
+    // Всегда логируем, чтобы видеть в DevTools, что именно вернул DaData.
+    // eslint-disable-next-line no-console
+    console.log('[DaData /suggest] выбрана подсказка:', {
+      value: item?.value,
+      district_parsed: parsed.district,
+      raw: item?.data,
+    });
+
     onSelect?.(parsed);
     setOpen(false);
     setSuggestions([]);
+
+    if (parsed.district) return;
+
+    if (parsed.lat == null || parsed.lng == null) {
+      // eslint-disable-next-line no-console
+      console.warn('[DaData] район пустой и нет координат — fallback невозможен', item?.data);
+      return;
+    }
+
+    // Reverse-геокод через /geolocate/address — иногда возвращает более полные данные.
+    enrichDistrictByCoords(parsed.lat, parsed.lng).then((richer) => {
+      const recovered = richer ? pickDistrictFromData(richer) : '';
+      // eslint-disable-next-line no-console
+      console.log('[DaData /geolocate] результат:', { recovered, raw: richer });
+
+      if (recovered) {
+        onSelect?.({ ...parsed, district: recovered });
+        return;
+      }
+
+      // eslint-disable-next-line no-console
+      console.warn('[DaData] район определить не удалось ни одним способом', {
+        suggest: item?.data,
+        geolocate: richer,
+      });
+    });
   };
 
   const updateRect = useCallback(() => {
@@ -249,22 +326,27 @@ function pickFirst(...values) {
   return '';
 }
 
+// Достаёт человеко-читаемое название района из DaData-data.
+// Перебирает поля по приоритету: специфичные для города → общие → settlement как fallback.
+export function pickDistrictFromData(d) {
+  if (!d) return '';
+  return pickFirst(
+    d.city_district_with_type,                                      // "Кировский р-н" — в составе города
+    d.city_district,                                                // "Кировский" — короткое
+    d.city_area,                                                    // "Зеленоград" — спецзоны (Москва)
+    d.area_with_type,                                               // "Любинский р-н" — район области
+    d.area,                                                         // короткое имя района области
+    d.settlement_with_type && d.settlement_with_type !== d.city_with_type
+      ? d.settlement_with_type
+      : null,
+  );
+}
+
 function parseDaData(item) {
   const d = item?.data ?? {};
 
   const city = pickFirst(d.city, d.settlement, d.region);
-
-  // У DaData район может лежать в нескольких полях, и часть из них чаще
-  // заполнены, чем «короткое» city_district. Идём по приоритету.
-  // `_with_type` оставляем как есть («Кировский р-н») — это короче, чем
-  // OSM-овский «Кировский административный округ».
-  const district = pickFirst(
-    d.city_district_with_type,
-    d.city_district,
-    d.area_with_type,
-    d.area,
-    d.settlement_with_type !== d.city_with_type ? d.settlement_with_type : null,
-  );
+  const district = pickDistrictFromData(d);
 
   // Адрес: улица + дом (с типом, если есть).
   let address = '';

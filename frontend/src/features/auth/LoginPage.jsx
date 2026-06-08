@@ -74,10 +74,6 @@ export function LoginPage({ onSuccess, onForgotPassword }) {
             </button>
           )}
         </form>
-
-        <div className="login-hint">
-          <p>Демо: <code>admin@sitescout.test</code> / <code>password</code></p>
-        </div>
       </div>
     </div>
   );

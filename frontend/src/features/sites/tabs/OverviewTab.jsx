@@ -97,6 +97,7 @@ export function OverviewTab({ site, user, onRefresh, onUpdateStatus }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [statusErr, setStatusErr] = useState("");
+  const [statusBusy, setStatusBusy] = useState(false);
 
   const canEdit = canEditSiteContent(user);
   const canChangeStatus = canChangeSiteStatus(user);
@@ -136,13 +137,42 @@ export function OverviewTab({ site, user, onRefresh, onUpdateStatus }) {
     }
   };
 
-  const handleStatusChange = async (e) => {
+  const goToStatus = async (to, confirmText) => {
+    if (confirmText && !window.confirm(confirmText)) return;
     setStatusErr("");
+    setStatusBusy(true);
     try {
-      await onUpdateStatus(site.id, e.target.value);
+      await onUpdateStatus(site.id, to);
     } catch (err) {
       setStatusErr(err.message ?? "Нельзя установить этот статус");
+    } finally {
+      setStatusBusy(false);
     }
+  };
+
+  // Метаданные статусов приходят с бэка (site.workflow).
+  const transitions = site.workflow?.transitions ?? [];
+  // Подсказка — только для следующего этапа воронки (forward-переход).
+  const forward = transitions.find((t) => t.kind === "forward");
+  const forwardBlocked = (forward?.requirements?.length ?? 0) > 0;
+
+  // В списке доступны только валидные переходы без невыполненных условий.
+  const byTo = new Map(transitions.map((t) => [t.to, t]));
+  const isSelectable = (value) => {
+    if (value === site.status) return true;
+    const t = byTo.get(value);
+    return !!t && (t.requirements?.length ?? 0) === 0;
+  };
+
+  const handleSelect = (e) => {
+    const to = e.target.value;
+    if (to === site.status) return;
+    const t = byTo.get(to);
+    const confirmText =
+      t?.kind === "archive"
+        ? "Отправить площадку в архив? Она пропадёт из реестра и метрик."
+        : undefined;
+    goToStatus(to, confirmText);
   };
 
   const cancelEdit = () => {
@@ -158,16 +188,21 @@ export function OverviewTab({ site, user, onRefresh, onUpdateStatus }) {
     <div className="tab-content">
       {/* ── Панель управления статусом ── */}
       <div className="tab-toolbar">
-        <label className="status-picker">
+        <div className="status-picker">
           <span>Статус:</span>
           {canChangeStatus ? (
             <select
               className="input status-select"
               value={site.status}
-              onChange={handleStatusChange}
+              onChange={handleSelect}
+              disabled={statusBusy}
             >
               {STATUS_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
+                <option
+                  key={o.value}
+                  value={o.value}
+                  disabled={!isSelectable(o.value)}
+                >
                   {o.label}
                 </option>
               ))}
@@ -175,7 +210,8 @@ export function OverviewTab({ site, user, onRefresh, onUpdateStatus }) {
           ) : (
             <StatusBadge status={site.status} />
           )}
-        </label>
+        </div>
+
         {canEdit && (
           <button
             className="ghost-button"
@@ -191,6 +227,20 @@ export function OverviewTab({ site, user, onRefresh, onUpdateStatus }) {
           </button>
         )}
       </div>
+
+      {/* Подсказка: что нужно для перехода на следующий этап */}
+      {canChangeStatus && forwardBlocked && (
+        <div className="status-hint">
+          <span className="status-hint-title">
+            Что нужно для перехода в «{forward.label}»:
+          </span>
+          <ul>
+            {forward.requirements.map((req) => (
+              <li key={req}>{req}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {statusErr && <div className="form-error">{statusErr}</div>}
 

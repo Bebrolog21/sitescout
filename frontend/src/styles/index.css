@@ -1194,6 +1194,27 @@ select.input {
     width: auto;
 }
 
+/* Подсказка «что нужно для следующего статуса» */
+.status-hint {
+    background: rgba(245, 166, 35, 0.1);
+    border: 1px solid var(--warning);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    font-size: 13px;
+    padding: 10px 14px;
+}
+.status-hint-title {
+    color: var(--warning);
+    font-weight: 600;
+}
+.status-hint ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+}
+.status-hint li {
+    margin-top: 2px;
+}
+
 /* ─────────────────────────────────────────────────────────────
    Кнопки
    ───────────────────────────────────────────────────────────── */

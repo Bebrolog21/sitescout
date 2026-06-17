@@ -150,8 +150,9 @@ test('финансовая модель рассчитывает окупаем�
 test('статус approved заблокирован без расчётов', function (): void {
     [, $headers] = makeUserWithToken('admin');
 
-    // Площадка без финмодели и с нулевым скором
-    $site = Site::factory()->create(['site_score' => 0, 'status' => 'scoring']);
+    // Площадка в «Согласование» без финмодели и с нулевым скором.
+    // negotiation → approved — валидное ребро, поэтому отказ именно из-за гейтов.
+    $site = Site::factory()->create(['site_score' => 0, 'status' => 'negotiation']);
 
     $response = $this->withHeaders($headers)->patchJson("/api/v1/sites/{$site->id}/status", [
         'status' => 'approved',
@@ -161,7 +162,314 @@ test('статус approved заблокирован без расчётов', f
         ->assertJsonValidationErrors(['status']);
 
     // Убедимся, что статус в БД не изменился
+    expect(Site::find($site->id)->status)->toBe('negotiation');
+});
+
+// ─── Тесты воронки статусов ──────────────────────────────────────────────────
+
+test('forward-переход new → screening разрешён', function (): void {
+    [, $headers] = makeUserWithToken('manager');
+
+    $site = Site::factory()->create(['status' => 'new']);
+
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'screening'])
+        ->assertOk()
+        ->assertJsonFragment(['status' => 'screening']);
+
+    expect(Site::find($site->id)->status)->toBe('screening');
+});
+
+test('new → approved заблокирован без заполненных данных', function (): void {
+    [, $headers] = makeUserWithToken('manager');
+
+    $site = Site::factory()->create(['status' => 'new', 'site_score' => 0]);
+
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'approved'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['status']);
+
+    expect(Site::find($site->id)->status)->toBe('new');
+});
+
+test('можно сразу согласовать при заполненных данных', function (): void {
+    [, $headers] = makeUserWithToken('admin');
+
+    // Балл рассчитан, критических рисков нет — осталось добавить финмодель.
+    $site = Site::factory()->create(['status' => 'inspection', 'site_score' => 80]);
+
+    $this->withHeaders($headers)->putJson("/api/v1/sites/{$site->id}/finance", [
+        'containers_count'    => 4,
+        'units_per_container' => 8,
+        'occupancy_percent'   => 70,
+        'capex_total'         => 2_000_000,
+        'opex_total'          => 100_000,
+        'price_per_unit'      => [4500, 6500, 9000],
+    ])->assertOk();
+
+    // Прямой переход inspection → approved минуя scoring/negotiation.
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'approved'])
+        ->assertOk()
+        ->assertJsonFragment(['status' => 'approved']);
+
+    expect(Site::find($site->id)->status)->toBe('approved');
+});
+
+test('заполненная площадка прыгает на любой статус, кроме «Запущена»', function (): void {
+    [, $headers] = makeUserWithToken('admin');
+
+    // Площадка с данными для согласования (балл + финмодель, нет крит. рисков).
+    $site = Site::factory()->create(['status' => 'inspection', 'site_score' => 80]);
+    $this->withHeaders($headers)->putJson("/api/v1/sites/{$site->id}/finance", [
+        'containers_count'    => 4,
+        'units_per_container' => 8,
+        'occupancy_percent'   => 70,
+        'capex_total'         => 2_000_000,
+        'opex_total'          => 100_000,
+        'price_per_unit'      => [4500, 6500, 9000],
+    ])->assertOk();
+
+    // Прыжок вперёд через этапы — разрешён.
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'negotiation'])
+        ->assertOk();
+    expect(Site::find($site->id)->status)->toBe('negotiation');
+
+    // А вот «Запущена» напрямую (минуя «Согласована») — нельзя.
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'launched'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['status']);
+});
+
+test('inspection → scoring заблокирован без заполненного чек-листа', function (): void {
+    [, $headers] = makeUserWithToken('manager');
+
+    $site = Site::factory()->create(['status' => 'inspection', 'site_score' => 0]);
+
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'scoring'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['status']);
+
+    expect(Site::find($site->id)->status)->toBe('inspection');
+});
+
+test('inspection → scoring проходит при рассчитанном балле', function (): void {
+    [, $headers] = makeUserWithToken('manager');
+
+    $site = Site::factory()->create(['status' => 'inspection', 'site_score' => 65]);
+
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'scoring'])
+        ->assertOk();
+
     expect(Site::find($site->id)->status)->toBe('scoring');
+});
+
+test('шаг назад scoring → inspection разрешён без условий', function (): void {
+    [, $headers] = makeUserWithToken('manager');
+
+    $site = Site::factory()->create(['status' => 'scoring', 'site_score' => 0]);
+
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'inspection'])
+        ->assertOk();
+
+    expect(Site::find($site->id)->status)->toBe('inspection');
+});
+
+test('площадку можно отклонить и архивировать с активного этапа', function (): void {
+    [, $headers] = makeUserWithToken('manager');
+
+    $rejected = Site::factory()->create(['status' => 'screening']);
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$rejected->id}/status", ['status' => 'rejected'])
+        ->assertOk();
+    expect(Site::find($rejected->id)->status)->toBe('rejected');
+
+    $archived = Site::factory()->create(['status' => 'scoring']);
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$archived->id}/status", ['status' => 'archived'])
+        ->assertOk();
+    expect(Site::find($archived->id)->status)->toBe('archived');
+});
+
+test('happy-path negotiation → approved при выполненных условиях', function (): void {
+    [, $headers] = makeUserWithToken('admin');
+
+    $site = Site::factory()->create(['status' => 'negotiation', 'site_score' => 80]);
+
+    // Сохраняем финмодель с положительной прибылью.
+    $this->withHeaders($headers)->putJson("/api/v1/sites/{$site->id}/finance", [
+        'containers_count'    => 4,
+        'units_per_container' => 8,
+        'occupancy_percent'   => 70,
+        'capex_total'         => 2_000_000,
+        'opex_total'          => 100_000,
+        'price_per_unit'      => [4500, 6500, 9000],
+    ])->assertOk();
+
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'approved'])
+        ->assertOk()
+        ->assertJsonFragment(['status' => 'approved']);
+
+    expect(Site::find($site->id)->status)->toBe('approved');
+});
+
+test('ответ updateStatus содержит метаданные воронки', function (): void {
+    [, $headers] = makeUserWithToken('manager');
+
+    $site = Site::factory()->create(['status' => 'new']);
+
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'screening'])
+        ->assertOk()
+        ->assertJsonStructure([
+            'workflow' => ['current', 'current_label', 'transitions'],
+        ]);
+});
+
+test('из «Запущена» нельзя прыгнуть напрямую в произвольный статус', function (): void {
+    [, $headers] = makeUserWithToken('manager');
+
+    $site = Site::factory()->create(['status' => 'launched']);
+
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'screening'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['status']);
+
+    expect(Site::find($site->id)->status)->toBe('launched');
+});
+
+test('из «Запущена» через «Согласована» можно попасть на любой статус', function (): void {
+    [, $headers] = makeUserWithToken('admin');
+
+    $site = Site::factory()->create([
+        'status' => 'launched',
+        'site_score' => 80,
+        'risk_score' => 10,
+    ]);
+
+    // Финмодель нужна для возврата в «Согласована».
+    $this->withHeaders($headers)->putJson("/api/v1/sites/{$site->id}/finance", [
+        'containers_count'    => 4,
+        'units_per_container' => 8,
+        'occupancy_percent'   => 70,
+        'capex_total'         => 2_000_000,
+        'opex_total'          => 100_000,
+        'price_per_unit'      => [4500, 6500, 9000],
+    ])->assertOk();
+
+    // launched → approved → любой статус
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'approved'])
+        ->assertOk();
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'inspection'])
+        ->assertOk();
+
+    expect(Site::find($site->id)->status)->toBe('inspection');
+});
+
+test('заполненную площадку из «В архиве» можно вернуть в любой статус', function (): void {
+    [, $headers] = makeUserWithToken('admin');
+
+    $site = Site::factory()->create(['status' => 'archived', 'site_score' => 80]);
+    $this->withHeaders($headers)->putJson("/api/v1/sites/{$site->id}/finance", [
+        'containers_count'    => 4,
+        'units_per_container' => 8,
+        'occupancy_percent'   => 70,
+        'capex_total'         => 2_000_000,
+        'opex_total'          => 100_000,
+        'price_per_unit'      => [4500, 6500, 9000],
+    ])->assertOk();
+
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'negotiation'])
+        ->assertOk();
+
+    expect(Site::find($site->id)->status)->toBe('negotiation');
+});
+
+test('пустую площадку из терминальных статусов нельзя ставить в произвольный статус', function (): void {
+    [, $headers] = makeUserWithToken('manager');
+
+    // Пустой архив → нельзя сразу в «Согласование».
+    $archived = Site::factory()->create(['status' => 'archived', 'site_score' => 0]);
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$archived->id}/status", ['status' => 'negotiation'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['status']);
+    expect(Site::find($archived->id)->status)->toBe('archived');
+
+    // Но реактивировать в «Новая» можно.
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$archived->id}/status", ['status' => 'new'])
+        ->assertOk();
+    expect(Site::find($archived->id)->status)->toBe('new');
+});
+
+test('из «Отклонена» пустую площадку можно реактивировать в «Новая»', function (): void {
+    [, $headers] = makeUserWithToken('manager');
+
+    $site = Site::factory()->create(['status' => 'rejected', 'site_score' => 0]);
+
+    // Прямой прыжок в середину воронки — нельзя.
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'screening'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['status']);
+
+    // Реактивация в «Новая» — можно.
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'new'])
+        ->assertOk();
+    expect(Site::find($site->id)->status)->toBe('new');
+});
+
+test('нерекомендованную площадку нельзя запустить', function (): void {
+    [, $headers] = makeUserWithToken('manager');
+
+    // approved, но балл ниже порога и без финмодели → не рекомендована.
+    $site = Site::factory()->create(['status' => 'approved', 'site_score' => 50]);
+
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'launched'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['status']);
+
+    expect(Site::find($site->id)->status)->toBe('approved');
+});
+
+test('рекомендованную площадку можно запустить', function (): void {
+    [, $headers] = makeUserWithToken('admin');
+
+    $site = Site::factory()->create([
+        'status' => 'approved',
+        'site_score' => 80,
+        'risk_score' => 10,
+    ]);
+
+    // Финмодель с окупаемостью ≤ 18 мес: CAPEX 500 000 / GP ≈ 49 333 ≈ 11 мес.
+    $this->withHeaders($headers)->putJson("/api/v1/sites/{$site->id}/finance", [
+        'containers_count'    => 4,
+        'units_per_container' => 8,
+        'occupancy_percent'   => 70,
+        'capex_total'         => 500_000,
+        'opex_total'          => 100_000,
+        'price_per_unit'      => [4500, 6500, 9000],
+    ])->assertOk();
+
+    $this->withHeaders($headers)
+        ->patchJson("/api/v1/sites/{$site->id}/status", ['status' => 'launched'])
+        ->assertOk();
+
+    expect(Site::find($site->id)->status)->toBe('launched');
 });
 
 // ─── Тест 6: аналитик не может создавать пункты чеклиста ─────────────────────

@@ -78,6 +78,7 @@ export function normalizeSite(site) {
     visits: site.visits ?? [],
     checklist_values: checklistValues,
     category_scores: groupChecklistScores(checklistValues),
+    workflow: site.workflow ?? null,
   };
 }
 

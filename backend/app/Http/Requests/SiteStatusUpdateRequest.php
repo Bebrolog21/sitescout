@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\SiteStatus;
 use App\Models\Site;
+use App\Services\SiteWorkflowService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
@@ -23,7 +25,8 @@ class SiteStatusUpdateRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
-            if ($this->input('status') !== 'approved') {
+            // Уже отвалилось на правиле `in` — проверять переход бессмысленно.
+            if ($validator->errors()->has('status')) {
                 return;
             }
 
@@ -34,22 +37,27 @@ class SiteStatusUpdateRequest extends FormRequest
                 return;
             }
 
-            $site->loadMissing(['finance', 'risks']);
+            $workflow = app(SiteWorkflowService::class);
+            $from = (string) $site->status;
+            $to = (string) $this->input('status');
 
-            if ((int) $site->site_score <= 0) {
-                $validator->errors()->add('status', 'Перед согласованием нужно рассчитать балл площадки.');
+            // Переход в тот же статус считаем no-op — пропускаем.
+            if ($from === $to) {
+                return;
             }
 
-            if (! $site->finance || empty($site->finance->results_json)) {
-                $validator->errors()->add('status', 'Перед согласованием нужно рассчитать финансовую модель.');
+            if (! $workflow->isAllowed($site, $to)) {
+                $validator->errors()->add('status', sprintf(
+                    'Недопустимый переход из «%s» в «%s».',
+                    SiteStatus::labelFor($from),
+                    SiteStatus::labelFor($to),
+                ));
+
+                return;
             }
 
-            $hasCriticalRiskWithoutMitigation = $site->risks->contains(function ($risk): bool {
-                return $risk->severity === 'critical' && blank($risk->mitigation);
-            });
-
-            if ($hasCriticalRiskWithoutMitigation) {
-                $validator->errors()->add('status', 'У площадки есть критические риски без плана митигации — площадка не может быть согласована.');
+            foreach ($workflow->requirements($site, $from, $to) as $message) {
+                $validator->errors()->add('status', $message);
             }
         });
     }

@@ -9,6 +9,7 @@ use App\Http\Requests\SiteUpdateRequest;
 use App\Models\Attachment;
 use App\Models\Site;
 use App\Services\PassportService;
+use App\Services\SiteWorkflowService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,9 +49,13 @@ class SiteController extends Controller
         return response()->json($site, 201);
     }
 
-    public function show(Site $site): JsonResponse
+    public function show(Site $site, SiteWorkflowService $workflow): JsonResponse
     {
-        return response()->json($site->load(['finance', 'risks', 'visits', 'checklistValues.checklistItem']));
+        $site->load(['finance', 'risks', 'visits', 'checklistValues.checklistItem']);
+
+        return response()->json(
+            $site->toArray() + ['workflow' => $workflow->metadata($site)],
+        );
     }
 
     public function update(SiteUpdateRequest $request, Site $site): JsonResponse
@@ -60,11 +65,15 @@ class SiteController extends Controller
         return response()->json($site->fresh());
     }
 
-    public function updateStatus(SiteStatusUpdateRequest $request, Site $site): JsonResponse
+    public function updateStatus(SiteStatusUpdateRequest $request, Site $site, SiteWorkflowService $workflow): JsonResponse
     {
         $site->update($request->validated());
 
-        return response()->json($site->fresh());
+        $site = $site->fresh(['finance', 'risks', 'visits', 'checklistValues.checklistItem']);
+
+        return response()->json(
+            $site->toArray() + ['workflow' => $workflow->metadata($site)],
+        );
     }
 
     public function passport(Site $site, PassportService $passportService): JsonResponse
